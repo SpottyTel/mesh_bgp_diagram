@@ -4,7 +4,7 @@ require 'net/http'
 require 'ruby-graphviz'
 require 'cgi'
 
-VOFR_LG_URL='https://vofr.net/lg/lg.txt'
+VOFR_LG_URL='https://vofr.net/lg/'
 SPOTTY_LG_URL='http://127.0.0.1/lg/lg.cgi?query=bgp&protocol=IPv4&addr=&router=KTNRONSPVR01&nodesc=1'
 
 AS_TXT='./as.txt'
@@ -23,7 +23,7 @@ class BGPPaths
       if(asn = /local AS (\d+)/.match(line)) then
         @local_asn = asn[1]
       end
-      if(pathdata = /(6\d{4}.*)$/.match(line)) then
+      if(pathdata = /(6\d{4}.*)$/.match(line) and !line.include? 'table version') then
         path = [@local_asn, pathdata[1].split(' ')[0..-2]].flatten
         next if path == [@local_asn]
         @all_paths << path
@@ -69,12 +69,31 @@ end
 cgi = CGI.new
 
 uri = URI(VOFR_LG_URL)
-vofr_paths = BGPPaths.new(bgp_output: Net::HTTP.get(uri))
+vofr_paths = Net::HTTP.get(uri)
+current_node = :unknown
+vofr_data = {east: '', west: ''}
+vofr_paths.each_line do |line|
+  if(line.start_with? '***US-WEST') then
+    current_node = :west
+    next
+  elsif(line.start_with? '***US-EAST') then
+    current_node = :east
+    next
+  elsif(line.include? '</pre>') then
+    current_node = :unknown
+    next
+  end
+  next unless current_node != :unknown
+  vofr_data[current_node] += line
+end
+
+vofr_east_paths = BGPPaths.new(bgp_output: vofr_data[:east])
+vofr_west_paths = BGPPaths.new(bgp_output: vofr_data[:west])
 
 uri = URI(SPOTTY_LG_URL)
 local_paths = BGPPaths.new(bgp_output: Net::HTTP.get(uri), local_asn: 64778)
 
-all_path_hops = [vofr_paths.path_hops, local_paths.path_hops].flatten.uniq
+all_path_hops = [vofr_east_paths.path_hops, vofr_west_paths.path_hops, local_paths.path_hops].flatten.uniq
 asdb = ASDatabase.new
 
 is_over_mesh = accessing_over_mesh(cgi)
@@ -92,7 +111,9 @@ all_path_hops.each do |path_hop|
   as_a = nil
   if(asns[0] == '64778')
     as_a = graph.add_nodes(as_a_desc, fillcolor: 'lightblue', style: 'filled')
-  elsif(asns[0].to_i == vofr_paths.local_asn.to_i) then
+  elsif(asns[0].to_i == vofr_east_paths.local_asn.to_i) then
+    as_a = graph.add_nodes(as_a_desc, fillcolor: 'lightyellow', style: 'filled')
+  elsif(asns[0].to_i == vofr_west_paths.local_asn.to_i) then
     as_a = graph.add_nodes(as_a_desc, fillcolor: 'lightyellow', style: 'filled')
   else
     as_a = graph.add_nodes(as_a_desc)
@@ -101,7 +122,9 @@ all_path_hops.each do |path_hop|
   as_b = nil
   if(asns[1] == '64778')
     as_b = graph.add_nodes(as_b_desc, fillcolor: 'lightblue', style: 'filled')
-  elsif(asns[1].to_i == vofr_paths.local_asn.to_i) then
+  elsif(asns[1].to_i == vofr_east_paths.local_asn.to_i) then
+    as_b = graph.add_nodes(as_b_desc, fillcolor: 'lightyellow', style: 'filled')
+  elsif(asns[1].to_i == vofr_west_paths.local_asn.to_i) then
     as_b = graph.add_nodes(as_b_desc, fillcolor: 'lightyellow', style: 'filled')
   else
     as_b = graph.add_nodes(as_b_desc)
