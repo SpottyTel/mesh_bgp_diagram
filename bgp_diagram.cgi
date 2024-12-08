@@ -78,6 +78,8 @@ all_path_hops = [vofr_paths.path_hops, local_paths.path_hops].flatten.uniq
 asdb = ASDatabase.new
 
 is_over_mesh = accessing_over_mesh(cgi)
+is_over_mesh = false if cgi.params.keys.include? 'nonames'
+
 graph = GraphViz.new(:G, :type => 'strict digraph')
 all_path_hops.each do |path_hop|
   asns = path_hop.split('-')
