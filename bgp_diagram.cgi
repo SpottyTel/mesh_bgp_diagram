@@ -141,5 +141,10 @@ end
 #print graph.output(png: nil)
 
 ENV['PATH'] = '/usr/bin:/bin'
-cgi.out('image/png') { graph.output(png: String) }
+if(__dir__.include? 'gopher') then
+  # gophernicus doesn't want headers, just the data
+  print(graph.output(png: String))
+else
+  cgi.out('image/png') { graph.output(png: String) }
+end
 
